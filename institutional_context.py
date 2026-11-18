@@ -453,8 +453,13 @@ class InstitutionalReasoningEngine:
         ranked_zones: List[ZoneContext] = []
 
         for z in all_candidate_zones:
+            # Exclude oversized macro zones (MN1/W1/D1) or giant candles that distort intraday levels
+            if getattr(z, "timeframe", "") in ("MN1", "W1", "D1"):
+                continue
             top = float(z.top)
             bot = float(z.bottom)
+            if (top - bot) > max(atr * 3.0, self.point * 25):
+                continue
             mid = float((top + bot) / 2.0)
             dist_pts = abs(current_price - mid)
             dist_pips = dist_pts / self.pip_size

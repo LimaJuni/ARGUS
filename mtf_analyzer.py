@@ -611,48 +611,49 @@ class MTFPriceActionAnalyzer:
         if exec_df is None or len(exec_df) < 15:
             return None
 
-        # 1. Gather all potential zones & order blocks across timeframes
+        exec_atr = float(self._calc_atr(exec_df, 14).iloc[-1])
+        max_zone_height = max(exec_atr * 3.0, point * 25)
+        actionable_tfs = {execution_tf, "M15", "M30", "H1", "H4"}
+
+        # 1. Gather ONLY fresh, unmitigated, actionable intraday/swing zones & Order Blocks
+        # (Exclude giant MN1/W1/D1 candles that swallow hundreds of pips of price action)
         zones_to_check: List[SupplyDemandZone] = []
         for tf_key, tfa in tf_analyses.items():
-            zones_to_check.extend(tfa.demand_zones)
-            zones_to_check.extend(tfa.supply_zones)
+            if tf_key not in actionable_tfs:
+                continue
+            for z in (tfa.demand_zones + tfa.supply_zones):
+                if z.is_fresh and not z.mitigated and (z.top - z.bottom) <= max_zone_height:
+                    zones_to_check.append(z)
 
         if all_obs:
             for tf_key, obs in all_obs.items():
+                if tf_key not in actionable_tfs:
+                    continue
                 for ob in obs:
-                    zones_to_check.append(SupplyDemandZone(
-                        timeframe=tf_key,
-                        time=ob.time,
-                        zone_type="DEMAND" if ob.ob_type == "BULLISH" else "SUPPLY",
-                        top=ob.top,
-                        bottom=ob.bottom,
-                        midpoint=ob.midpoint,
-                        impulse_ratio=ob.displacement_atr,
-                        touches=ob.touches,
-                        is_fresh=ob.is_fresh
-                    ))
+                    if ob.is_fresh and not ob.mitigated and (ob.top - ob.bottom) <= max_zone_height:
+                        zones_to_check.append(SupplyDemandZone(
+                            timeframe=tf_key,
+                            time=ob.time,
+                            zone_type="DEMAND" if ob.ob_type == "BULLISH" else "SUPPLY",
+                            top=ob.top,
+                            bottom=ob.bottom,
+                            midpoint=ob.midpoint,
+                            impulse_ratio=ob.displacement_atr,
+                            touches=ob.touches,
+                            is_fresh=ob.is_fresh
+                        ))
 
-        # Also add recent swing extremes (resistance / support range)
-        recent_high = float(exec_df["high"].tail(35).max())
-        recent_low = float(exec_df["low"].tail(35).min())
-        range_span = recent_high - recent_low
-        zones_to_check.append(SupplyDemandZone(
-            timeframe=execution_tf, time=exec_df.index[-1], zone_type="SUPPLY",
-            top=recent_high, bottom=recent_high - (range_span * 0.08),
-            midpoint=recent_high - (range_span * 0.04), impulse_ratio=1.5, touches=1, is_fresh=True
-        ))
-        zones_to_check.append(SupplyDemandZone(
-            timeframe=execution_tf, time=exec_df.index[-1], zone_type="DEMAND",
-            top=recent_low + (range_span * 0.08), bottom=recent_low,
-            midpoint=recent_low + (range_span * 0.04), impulse_ratio=1.5, touches=1, is_fresh=True
-        ))
+        # Prioritize execution timeframe zones first, then H1, then H4
+        tf_priority = {execution_tf: 0, "M1": 1, "M5": 1, "M15": 2, "M30": 3, "H1": 4, "H4": 5}
+        zones_to_check.sort(key=lambda z: tf_priority.get(z.timeframe, 9))
 
-        # 2. Find matching zone where price is currently inside or touching
+        # 2. Strict zone entry check: latest candle must ACTUALLY be inside or tapping the zone
+        last_high = float(exec_df["high"].iloc[-1])
+        last_low = float(exec_df["low"].iloc[-1])
         matched_zone = None
         for z in zones_to_check:
-            z_span = max(abs(z.top - z.bottom), point * 10)
-            buf = z_span * 0.25
-            if (z.bottom - buf) <= current_price <= (z.top + buf):
+            # Price or latest bar wick genuinely overlaps [z.bottom, z.top]
+            if (z.bottom <= current_price <= z.top) or (last_low <= z.top and last_high >= z.bottom):
                 matched_zone = z
                 break
 
@@ -661,9 +662,8 @@ class MTFPriceActionAnalyzer:
 
         zone_direction = "BUY" if matched_zone.zone_type == "DEMAND" else "SELL"
 
-        # 3. Double Confirmation Check on Execution Timeframe (15m, 5m, or 1m)
-        lookback = 12 if execution_tf in ("M5", "M1") else 16
-        patterns = self.detect_reversal_patterns(exec_df, lookback=lookback)
+        # 3. Double Confirmation Check on Execution Timeframe (must be recent — last 4 bars!)
+        patterns = self.detect_reversal_patterns(exec_df, lookback=4)
         matching_rejection = next((p for p in reversed(patterns) if (
             (zone_direction == "BUY" and p.direction == "BULLISH") or
             (zone_direction == "SELL" and p.direction == "BEARISH")

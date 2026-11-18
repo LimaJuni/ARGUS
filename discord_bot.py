@@ -940,19 +940,25 @@ async def alert_monitor_loop():
             tp = res.trade_plan
             d = res.digits
 
-            if tp and tp.status in ("ARMED_IN_ZONE", "TRIGGERED"):
-                state_key = f"{tp.status}_{tp.direction}"
+            is_genuinely_in_zone = (
+                tp is not None
+                and tp.active_zone is not None
+                and (tp.active_zone.bottom <= res.current_price <= tp.active_zone.top)
+            )
+            is_confirmed_setup = (tp is not None and tp.status == "TRIGGERED")
+
+            if is_confirmed_setup or (tp is not None and tp.status == "ARMED_IN_ZONE" and is_genuinely_in_zone):
+                state_key = f"{tp.status}_{tp.direction}_{round(tp.active_zone.bottom, d)}"
                 dir_emoji = "🟢" if tp.direction == "BUY" else "🔴"
-                stage_label = "SETUP COMPLETE ⚡" if tp.status == "TRIGGERED" else "ENTERED ZONE 🚨"
+                stage_label = "SETUP COMPLETE ⚡" if is_confirmed_setup else "ENTERED ZONE 🚨"
 
                 for uid, sub in subscribers:
                     last_state = sub.get("last_status")
-                    last_ts = sub.get("last_alert_ts", 0)
-                    # Fire if new state (e.g. entered zone or upgraded to setup complete) OR 45m cooldown elapsed
-                    if last_state != state_key or (now_ts - last_ts) >= 2700:
+                    # ONLY alert on genuine state transition (entered a new zone OR upgraded to confirmed setup)
+                    if last_state != state_key:
                         short_msg = (
                             f"🔔 <@{uid}> **ARGUS · {stage_label}**\n"
-                            f"{dir_emoji} **{tp.direction} {res.display_name}** (`{tp.execution_tf}`)\n"
+                            f"{dir_emoji} **{tp.direction} {res.display_name}** (`{tp.execution_tf}` · {tp.active_zone.timeframe} {tp.active_zone.zone_type} `{tp.active_zone.bottom:.{d}f}-{tp.active_zone.top:.{d}f}`)\n"
                             f"Entry: `{tp.entry_price:.{d}f}` | SL: `{tp.stop_loss:.{d}f}` | TP: `{tp.take_profit_1:.{d}f}` (TP2: `{tp.take_profit_2:.{d}f}`)"
                         )
                         sent = False
