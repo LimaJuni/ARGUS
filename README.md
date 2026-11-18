@@ -57,8 +57,9 @@ ARGUS/
 ├── tv_history.py               # Multi-timeframe OHLCV fetcher (TradingView WebSocket + Yahoo Finance fallback)
 ├── symbols.py                  # Symbol alias resolver (gold, gu, eu, loonie, us30, nas100, etc.)
 ├── strategy.py                 # Persistent strategy & risk configuration manager
-├── requirements.txt            # Python dependencies (Linux/Render compatible)
-└── render.yaml                 # Render Blueprint for one-click cloud deployment
+├── requirements.txt            # Python dependencies (Linux/Railway compatible)
+├── Procfile                    # Railway worker start command
+└── render.yaml                 # Optional Render Blueprint
 ```
 
 ---
@@ -89,14 +90,15 @@ python3 discord_bot.py
 
 ---
 
-## ☁️ Deploying to Render
+## 🚂 Deploying to Railway (Recommended)
 
-This repository includes a [`render.yaml`](render.yaml) Blueprint and a built-in HTTP health server (`0.0.0.0:$PORT`) so it deploys out of the box on Render's **Free Web Service** tier or a paid **Background Worker**:
+**Railway** runs ARGUS as a clean 24/7 background worker without idle sleep:
 
-1. Open [dashboard.render.com](https://dashboard.render.com) → **New +** → **Blueprint**.
-2. Connect the **`LimaJuni/ARGUS`** repository.
-3. Add your **`DISCORD_BOT_TOKEN`** environment variable and click **Apply**.
-4. *(Optional for Free Tier)* Ping `https://<your-service>.onrender.com/` every 5 minutes using a free monitor (e.g. UptimeRobot) to prevent idle sleep.
+1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**.
+2. Select **`LimaJuni/ARGUS`** (Railway auto-detects Python, `requirements.txt`, and `Procfile`).
+3. Open **Variables** and add:
+   - **`DISCORD_BOT_TOKEN`** = your Discord bot token
+4. Railway builds and starts `python3 discord_bot.py` automatically on every push to `main`.
 
 ---
 
