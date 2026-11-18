@@ -1,0 +1,15 @@
+# Secrets (NEVER commit!)
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Generated runtime files
+snapshots/*.png
+*.log
+user_alerts.json
